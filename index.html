@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#B3122B">
+<title>Samvidhan: Legal Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Special+Elite&family=Playfair+Display:wght@700;900&family=Oswald:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!--
+  DOM CONTRACT (used by src/*.js)
+  Canvas ............ #game-canvas
+  HUD bars .......... #bar-fortitude #bar-flow #bar-opp-health #bar-opp-flow #bar-verdict (inner .fill)
+  HUD text .......... #player-name #player-rank #stat-rep #purse #location-label #case-title #opp-name #opp-role
+  Overlays .......... #dialogue-box #callout #gavel-countdown #interact-prompt #toast-container
+  Touch ............. #joystick-zone #joystick-base #joystick-knob, buttons [data-action="A|G|R|P|T"]
+  Modals ............ .modal elements, toggled by adding/removing the class "open"
+-->
+
+<div id="app">
+
+  <!-- ===== LOADING SCREEN ===== -->
+  <div id="loading-screen" class="screen active" aria-live="polite">
+    <div class="loading-inner">
+      <div class="logo-scales" aria-hidden="true">&#9878;</div>
+      <h1 class="game-title">SAMVIDHAN</h1>
+      <h2 class="game-subtitle">LEGAL EMPIRE</h2>
+      <div class="loading-bar"><div class="fill" id="loading-fill"></div></div>
+      <p id="loading-text">Gathering case files&hellip;</p>
+    </div>
+  </div>
+
+  <!-- ===== ROTATE WARNING (portrait) ===== -->
+  <div id="rotate-warning" role="alert">
+    <div class="rotate-icon" aria-hidden="true">&#128241;</div>
+    <p>ROTATE YOUR DEVICE<br><span>Court is held in landscape mode</span></p>
+  </div>
+
+  <!-- ===== 3D VIEWPORT ===== -->
+  <div id="canvas-container">
+    <canvas id="game-canvas"></canvas>
+    <div id="vignette" aria-hidden="true"></div>
+    <div id="flash-layer" aria-hidden="true"></div>
+  </div>
+
+  <!-- ===== HUD ===== -->
+  <div id="hud" class="hidden">
+
+    <!-- Top bar -->
+    <div id="hud-top">
+
+      <div id="player-panel" class="fighter-panel left">
+        <div class="portrait" id="player-portrait" aria-hidden="true">&#129489;&#8205;&#9878;&#65039;</div>
+        <div class="panel-body">
+          <div class="name-row">
+            <span id="player-name" class="fighter-name">ADV. YOU</span>
+            <span id="player-rank" class="rank-chip">JUNIOR</span>
+          </div>
+          <div class="bar-label">MENTAL FORTITUDE</div>
+          <div class="bar bar-fortitude" id="bar-fortitude"><div class="fill"></div><span class="bar-num">100</span></div>
+          <div class="bar-label">ARGUMENT FLOW</div>
+          <div class="bar bar-flow" id="bar-flow"><div class="fill"></div><span class="bar-num">100</span></div>
+        </div>
+      </div>
+
+      <div id="center-panel">
+        <div id="location-label" class="location-tag">DISTRICT SESSIONS COURT</div>
+        <div id="case-title" class="case-tag">FREE ROAM</div>
+        <div id="verdict-meter" class="hidden">
+          <div class="meter-label">JUDGE'S LEANING</div>
+          <div class="bar bar-verdict" id="bar-verdict"><div class="fill"></div><div class="center-mark"></div></div>
+        </div>
+      </div>
+
+      <div id="opponent-panel" class="fighter-panel right hidden">
+        <div class="portrait" id="opp-portrait" aria-hidden="true">&#128104;&#8205;&#9878;&#65039;</div>
+        <div class="panel-body">
+          <div class="name-row">
+            <span id="opp-name" class="fighter-name">OPPOSING COUNSEL</span>
+            <span id="opp-role" class="rank-chip opp">PUBLIC PROSECUTOR</span>
+          </div>
+          <div class="bar-label">ARGUMENT HEALTH</div>
+          <div class="bar bar-opp" id="bar-opp-health"><div class="fill"></div><span class="bar-num">100</span></div>
+          <div class="bar-label">FLOW</div>
+          <div class="bar bar-flow" id="bar-opp-flow"><div class="fill"></div><span class="bar-num">100</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Purse / Rep -->
+    <div id="hud-corner-stats">
+      <div class="stat-pill"><span class="stat-icon">&#8377;</span><span id="purse">0</span></div>
+      <div class="stat-pill"><span class="stat-icon">&#9733;</span><span id="stat-rep">0</span></div>
+    </div>
+
+    <!-- Small utility buttons -->
+    <div id="hud-utility">
+      <button class="util-btn" id="btn-pause" aria-label="Pause">&#10074;&#10074;</button>
+      <button class="util-btn" id="btn-codex" aria-label="Article Codex">&#128214;</button>
+      <button class="util-btn" id="btn-career" aria-label="Career">&#127894;</button>
+    </div>
+
+    <!-- Combat callouts -->
+    <div id="callout" class="hidden" aria-live="assertive"></div>
+    <div id="gavel-countdown" class="hidden" aria-live="assertive">
+      <div class="gavel-count"><span class="gavel-icon">&#128296;</span><span id="gavel-number">1</span></div>
+      <div id="gavel-text">ORDER!</div>
+    </div>
+
+    <!-- Interaction prompt -->
+    <div id="interact-prompt" class="hidden"><span class="key-chip">P</span><span id="interact-text">Pick up brief</span></div>
+
+    <!-- Dialogue -->
+    <div id="dialogue-box" class="hidden">
+      <div id="dialogue-speaker">MENTOR</div>
+      <div id="dialogue-text"></div>
+      <button id="dialogue-next" class="comic-btn small">NEXT &#9656;</button>
+    </div>
+
+    <!-- Toasts -->
+    <div id="toast-container" aria-live="polite"></div>
+
+    <!-- Objection lock-up (citation challenge) -->
+    <div id="cite-panel" class="hidden">
+      <div class="cite-head"><span class="cite-tag">OBJECTION LOCK-UP</span><div class="cite-timer" id="cite-timer"><div class="fill" id="cite-timer-fill"></div></div></div>
+      <h3 class="cite-q" id="cite-title">WHICH ARTICLE?</h3>
+      <div class="cite-facts" id="cite-facts"></div>
+      <div class="cite-options" id="cite-options"></div>
+      <div class="cite-foot">
+        <button id="cite-hint" class="comic-btn small alt">HINT (-50% DAMAGE)</button>
+        <span id="cite-hinttext" class="cite-hinttext hidden"></span>
+      </div>
+      <div class="cite-result hidden" id="cite-result">
+        <div class="cite-result-title" id="cite-result-title">CORRECT!</div>
+        <div class="cite-result-text" id="cite-result-text"></div>
+        <button id="cite-continue" class="comic-btn small">CONTINUE</button>
+      </div>
+    </div>
+
+    <!-- Touch controls -->
+    <div id="touch-controls">
+      <div id="joystick-zone">
+        <div id="joystick-base"><div id="joystick-knob"></div></div>
+      </div>
+
+      <div id="action-cluster">
+        <button class="act-btn btn-A" data-action="A" aria-label="Argue / Strike"><b>A</b><small>ARGUE</small></button>
+        <button class="act-btn btn-G" data-action="G" aria-label="Grapple / Cite Article"><b>G</b><small>CITE</small></button>
+        <button class="act-btn btn-R" data-action="R" aria-label="Run"><b>R</b><small>RUN</small></button>
+        <button class="act-btn btn-P" data-action="P" aria-label="Petition / Pick"><b>P</b><small>PICK</small></button>
+        <button class="act-btn btn-T" data-action="T" aria-label="Target / Taunt"><b>T</b><small>TARGET</small></button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== MAIN MENU ===== -->
+  <div id="modal-main-menu" class="modal">
+    <div class="modal-panel menu-panel">
+      <div class="logo-scales big" aria-hidden="true">&#9878;</div>
+      <h1 class="game-title">SAMVIDHAN</h1>
+      <h2 class="game-subtitle">LEGAL EMPIRE</h2>
+      <p class="tagline">Indian Constitution &amp; Courtroom Combat</p>
+      <div class="menu-buttons">
+        <button class="comic-btn" id="btn-new-career">&#9878; NEW CAREER</button>
+        <button class="comic-btn alt" id="btn-continue">&#9654; CONTINUE</button>
+        <button class="comic-btn alt" id="btn-howto">? HOW TO PLAY</button>
+        <button class="comic-btn alt" id="btn-settings">&#9881; SETTINGS</button>
+      </div>
+      <div class="menu-footer">Inspired by sandbox wrestling. Built for law students.</div>
+    </div>
+  </div>
+
+  <!-- ===== CHARACTER CREATION ===== -->
+  <div id="modal-create" class="modal">
+    <div class="modal-panel">
+      <h2 class="panel-title">ENROL AT THE BAR</h2>
+      <label class="field">
+        <span>ADVOCATE NAME</span>
+        <input type="text" id="input-name" maxlength="18" placeholder="e.g. Ambedkar Jr." autocomplete="off">
+      </label>
+      <div class="field">
+        <span>PRACTICE STYLE</span>
+        <div class="choice-row" id="choice-style">
+          <button class="choice selected" data-style="balanced"><b>ALL-ROUNDER</b><small>Balanced stats</small></button>
+          <button class="choice" data-style="orator"><b>ORATOR</b><small>+Argument Flow</small></button>
+          <button class="choice" data-style="scholar"><b>SCHOLAR</b><small>+Precedent Recall</small></button>
+          <button class="choice" data-style="fighter"><b>LITIGATOR</b><small>+Legal Power</small></button>
+        </div>
+      </div>
+      <div class="field">
+        <span>ROBE COLOUR ACCENT</span>
+        <div class="swatch-row" id="swatch-row">
+          <button class="swatch selected" data-color="#1a1a1a" style="background:#1a1a1a" aria-label="Black"></button>
+          <button class="swatch" data-color="#1b2a5c" style="background:#1b2a5c" aria-label="Navy"></button>
+          <button class="swatch" data-color="#3a1a4a" style="background:#3a1a4a" aria-label="Plum"></button>
+          <button class="swatch" data-color="#0f3d2e" style="background:#0f3d2e" aria-label="Green"></button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="comic-btn alt" data-close="modal-create">BACK</button>
+        <button class="comic-btn" id="btn-start-career">TAKE OATH</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== HOW TO PLAY ===== -->
+  <div id="modal-howto" class="modal">
+    <div class="modal-panel wide">
+      <h2 class="panel-title">HOW TO PLAY</h2>
+      <div class="howto-grid">
+        <div class="howto-card"><b>LEFT STICK</b><p>Walk the court, corridors and thana in 360&deg;.</p></div>
+        <div class="howto-card"><b>A &mdash; ARGUE</b><p>Strike with arguments, objections and evidence.</p></div>
+        <div class="howto-card"><b>G &mdash; CITE</b><p>Lock-up and cite an Article or Writ. Combine with a stick direction.</p></div>
+        <div class="howto-card"><b>R &mdash; RUN</b><p>Sprint through halls. Costs Argument Flow.</p></div>
+        <div class="howto-card"><b>P &mdash; PICK</b><p>Pick up briefs, gavels, files. Open doors, enter witness stand.</p></div>
+        <div class="howto-card"><b>T &mdash; TARGET</b><p>Switch between opposing counsel, witness and Magistrate.</p></div>
+      </div>
+      <div class="moves-table">
+        <h3>CONSTITUTIONAL MOVES (hold direction + G)</h3>
+        <ul>
+          <li><span class="dir">&#9650;</span> Article 21 &mdash; Right to Life &amp; Personal Liberty <em>(heavy defence)</em></li>
+          <li><span class="dir">&#9660;</span> Habeas Corpus &mdash; breaks illegal detention</li>
+          <li><span class="dir">&#9664;</span> Article 14 &mdash; Equality; rebuts arbitrary charges</li>
+          <li><span class="dir">&#9654;</span> Article 19 &mdash; Free Speech; counter-interrogation</li>
+        </ul>
+        <p class="tip">Deplete opposing counsel's health, then press G beside them to start the <b>Verdict hold</b>. Three gavels and the Judge decides!</p>
+      </div>
+      <div class="modal-actions"><button class="comic-btn" data-close="modal-howto">GOT IT</button></div>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS ===== -->
+  <div id="modal-settings" class="modal">
+    <div class="modal-panel">
+      <h2 class="panel-title">SETTINGS</h2>
+      <label class="slider-row"><span>MASTER VOLUME</span><input type="range" id="set-volume" min="0" max="100" value="70"></label>
+      <label class="slider-row"><span>MUSIC / AMBIENCE</span><input type="range" id="set-ambience" min="0" max="100" value="50"></label>
+      <label class="slider-row"><span>JOYSTICK SIZE</span><input type="range" id="set-stick" min="80" max="140" value="100"></label>
+      <label class="slider-row"><span>BUTTON SIZE</span><input type="range" id="set-buttons" min="80" max="130" value="100"></label>
+      <label class="toggle-row"><span>HAPTIC FEEDBACK</span><input type="checkbox" id="set-haptics" checked></label>
+      <label class="toggle-row"><span>CAMERA SHAKE</span><input type="checkbox" id="set-shake" checked></label>
+      <label class="toggle-row"><span>LOW-GRAPHICS MODE</span><input type="checkbox" id="set-lowgfx"></label>
+      <div class="modal-actions">
+        <button class="comic-btn danger" id="btn-reset-save">ERASE SAVE</button>
+        <button class="comic-btn" data-close="modal-settings">DONE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAUSE ===== -->
+  <div id="modal-pause" class="modal">
+    <div class="modal-panel menu-panel">
+      <h2 class="panel-title">COURT ADJOURNED</h2>
+      <div class="menu-buttons">
+        <button class="comic-btn" id="btn-resume">&#9654; RESUME</button>
+        <button class="comic-btn alt" id="btn-open-career">&#127894; CAREER</button>
+        <button class="comic-btn alt" id="btn-open-library">&#127891; LAW LIBRARY</button>
+        <button class="comic-btn alt" id="btn-open-codex">&#128214; LAW CODEX</button>
+        <button class="comic-btn alt" id="btn-open-news">&#128240; SAMACHAR</button>
+        <button class="comic-btn alt" id="btn-save-quit">&#128190; SAVE &amp; QUIT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ARTICLE CODEX ===== -->
+  <div id="modal-codex" class="modal">
+    <div class="modal-panel wide">
+      <h2 class="panel-title">LAW CODEX</h2>
+      <div class="tab-row" id="codex-tabs">
+        <button class="tab selected" data-tab="articles">ARTICLES</button>
+        <button class="tab" data-tab="writs">WRITS</button>
+        <button class="tab" data-tab="bns">BNS</button>
+        <button class="tab" data-tab="procedure">BNSS / BSA</button>
+        <button class="tab" data-tab="cases">CASES</button>
+      </div>
+      <input type="text" id="codex-search" class="search-box" placeholder="Search e.g. 21, bail, murder, privacy" autocomplete="off">
+      <div id="codex-list" class="scroll-list"></div>
+      <div class="modal-actions"><button class="comic-btn" data-close="modal-codex">CLOSE</button></div>
+    </div>
+  </div>
+
+  <!-- ===== CAREER ===== -->
+  <div id="modal-career" class="modal">
+    <div class="modal-panel wide">
+      <h2 class="panel-title">CAREER DOSSIER</h2>
+      <div class="career-layout">
+        <div class="career-card">
+          <h3 id="career-name">ADV. YOU</h3>
+          <div id="career-circuit" class="circuit-chip">TALUK COURT</div>
+          <div id="career-stats" class="stat-grid"></div>
+        </div>
+        <div class="career-card">
+          <h3>BAR RANK PROGRESS</h3>
+          <div class="circuit-track" id="circuit-track"></div>
+          <h3>RECORD</h3>
+          <div id="career-record" class="record-grid"></div>
+        </div>
+      </div>
+      <div class="modal-actions"><button class="comic-btn" data-close="modal-career">CLOSE</button></div>
+    </div>
+  </div>
+
+  <!-- ===== CASE BRIEFING ===== -->
+  <div id="modal-briefing" class="modal">
+    <div class="modal-panel case-file">
+      <div class="file-tab">CASE FILE</div>
+      <h2 id="briefing-title" class="panel-title">State v. Sharma</h2>
+      <div class="briefing-meta">
+        <span id="briefing-type" class="rank-chip">BAIL HEARING</span>
+        <span id="briefing-court" class="rank-chip opp">DISTRICT SESSIONS</span>
+        <span id="briefing-fee" class="rank-chip gold">&#8377;0</span>
+      </div>
+      <p id="briefing-text" class="briefing-text"></p>
+      <div class="briefing-hint"><b>HINT:</b> <span id="briefing-hint"></span></div>
+      <div class="modal-actions">
+        <button class="comic-btn alt" id="btn-decline-case">DECLINE</button>
+        <button class="comic-btn" id="btn-accept-case">ACCEPT CASE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== USTAD OFFERS ===== -->
+  <div id="modal-offers" class="modal">
+    <div class="modal-panel wide">
+      <h2 class="panel-title">SENIOR'S OFFER</h2>
+      <p id="offers-intro" class="briefing-text"></p>
+      <div id="offers-list" class="offer-list"></div>
+      <div class="modal-actions"><button class="comic-btn alt" data-close="modal-offers">LATER</button></div>
+    </div>
+  </div>
+
+  <!-- ===== VERDICT RESULT ===== -->
+  <div id="modal-verdict" class="modal">
+    <div class="modal-panel verdict-panel">
+      <div id="verdict-stamp" class="verdict-stamp">GRANTED</div>
+      <h2 id="verdict-title" class="panel-title">BAIL GRANTED</h2>
+      <p id="verdict-sub" class="briefing-text"></p>
+      <div id="verdict-rewards" class="reward-row"></div>
+      <div class="modal-actions">
+        <button class="comic-btn" id="btn-verdict-continue">CONTINUE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SAMVIDHAN SAMACHAR (NEWSPAPER) ===== -->
+  <div id="modal-newspaper" class="modal">
+    <div class="modal-panel newspaper">
+      <div class="paper-masthead">
+        <span class="paper-edition" id="paper-edition">WEEK 1</span>
+        <h2>SAMVIDHAN SAMACHAR</h2>
+        <span class="paper-price">&#8377;2</span>
+      </div>
+      <div class="paper-rule"></div>
+      <h3 id="paper-headline" class="paper-headline">NEW ADVOCATE ENROLS AT THE BAR</h3>
+      <div class="paper-columns">
+        <div id="paper-col1" class="paper-col"></div>
+        <div id="paper-col2" class="paper-col"></div>
+      </div>
+      <div class="paper-ticker" id="paper-ticker"></div>
+      <div class="modal-actions"><button class="comic-btn" data-close="modal-newspaper">FOLD PAPER</button></div>
+    </div>
+  </div>
+
+  <!-- ===== LAW LIBRARY (study hub) ===== -->
+  <div id="modal-library" class="modal">
+    <div class="modal-panel wide">
+      <h2 class="panel-title">LAW LIBRARY</h2>
+      <div class="lib-top">
+        <div class="stat-pill"><span class="stat-icon">&#128293;</span><span id="lib-streak">0</span>&nbsp;day streak</div>
+        <div class="stat-pill"><span class="stat-icon">&#10004;</span><span id="lib-understood">0</span>&nbsp;understood</div>
+        <div id="lib-promo" class="lib-promo"></div>
+      </div>
+      <div class="lib-actions">
+        <button class="comic-btn" id="btn-lib-daily">DAILY MOOT (5 Qs)</button>
+        <button class="comic-btn alt" data-quiz="all">MIXED QUIZ</button>
+        <button class="comic-btn alt" data-quiz="articles">ARTICLES</button>
+        <button class="comic-btn alt" data-quiz="bns">BNS</button>
+        <button class="comic-btn alt" data-quiz="procedure">BNSS / BSA</button>
+        <button class="comic-btn alt" data-quiz="writs">WRITS</button>
+        <button class="comic-btn alt" data-quiz="cases">CASES</button>
+      </div>
+      <h3 class="lib-h">YOUR LEARNING PATH</h3>
+      <div id="library-path" class="scroll-list"></div>
+      <div class="modal-actions"><button class="comic-btn" data-close="modal-library">CLOSE</button></div>
+    </div>
+  </div>
+
+  <!-- ===== QUIZ / MOOT ===== -->
+  <div id="modal-quiz" class="modal">
+    <div class="modal-panel wide quiz-panel">
+      <div class="quiz-top">
+        <span id="quiz-mode" class="rank-chip">QUIZ</span>
+        <span id="quiz-progress">Q 1/5</span>
+        <span id="quiz-score">0 correct</span>
+      </div>
+      <h3 id="quiz-title" class="quiz-title">WHICH ARTICLE?</h3>
+      <p id="quiz-prompt" class="quiz-prompt"></p>
+      <div id="quiz-options" class="quiz-options"></div>
+      <div id="quiz-feedback" class="quiz-feedback hidden"></div>
+      <div class="modal-actions">
+        <button class="comic-btn alt" id="quiz-hint">HINT</button>
+        <button class="comic-btn alt" id="quiz-quit">EXIT</button>
+        <button class="comic-btn" id="quiz-next" disabled>NEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== GENERIC CONFIRM ===== -->
+  <div id="modal-confirm" class="modal">
+    <div class="modal-panel small">
+      <h2 class="panel-title" id="confirm-title">ARE YOU SURE?</h2>
+      <p id="confirm-text" class="briefing-text"></p>
+      <div class="modal-actions">
+        <button class="comic-btn alt" id="confirm-no">NO</button>
+        <button class="comic-btn danger" id="confirm-yes">YES</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<!-- Game modules (classic scripts, load order matters; works from file:// too) -->
+<script src="src/state.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/graphics.js"></script>
+<script src="src/combat.js"></script>
+<script src="src/world.js"></script>
+<script src="src/game.js"></script>
+
+</body>
+</html>
